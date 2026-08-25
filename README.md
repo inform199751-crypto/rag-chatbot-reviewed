@@ -1,6 +1,6 @@
 # RAG (Retrieval-augmented generation) ChatBot
 
-[![CI](https://github.com/umbertogriffo/rag-chatbot/workflows/CI/badge.svg)](https://github.com/umbertogriffo/rag-chatbot/actions/workflows/ci.yaml)
+[![CI](https://github.com/inform199751-crypto/-01/actions/workflows/ci.yaml/badge.svg)](https://github.com/inform199751-crypto/-01/actions/workflows/ci.yaml)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 [![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
@@ -56,12 +56,14 @@ template that tells it to return the original answer when the context is unhelpf
 
 ### How these were verified
 
+- The full `pytest` suite passes in CI against a live llama.cpp server, with coverage held at 60% or above
 - `ruff check` and `ruff format --check` pass across every changed file
 - `ChatHistory` trimming and per-connection isolation unit-tested
 - The `clean()` change tested against the pinned `clean-text 0.7.1` and `Unidecode 1.3.8`
 - The registry-to-response mapping tested against SQLite
 
-The `api/` suite was **not** run: it requires a live llama.cpp server, and the project pins `python >=3.12,<3.13`.
+One caveat worth stating plainly: the test suite predates these fixes and does not assert on them directly -- `tests/api/test_documents.py` is still empty, and the default synthesis strategy is
+`tree-summarization`, so the `create-and-refine` path in fix 4 is not exercised. A green run means nothing regressed, not that each fix is covered.
 
 ---
 
