@@ -35,7 +35,9 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
+from config import settings  # noqa: E402
 from memory.factory import create_embedder  # noqa: E402
+from memory.reranker import create_reranker  # noqa: E402
 from memory.vector_database.chroma import Chroma  # noqa: E402
 from services.ingest_documents_service.document_loader.loader import DirectoryLoader  # noqa: E402
 from services.ingest_documents_service.document_loader.text_splitter import split_chunks  # noqa: E402
@@ -112,10 +114,21 @@ def build_index(corpus_paths: list[str], chunk_size: int, chunk_overlap: int, em
     return index, len(documents), len(chunks)
 
 
-def evaluate(index, queries: list[dict], k: int) -> list[QueryResult]:
+def evaluate(index, queries: list[dict], k: int, reranker=None, candidates: int = 20) -> list[QueryResult]:
     results = []
     for item in queries:
-        docs_and_scores = index.similarity_search_with_relevance_scores(query=item["query"], k=k)
+        if reranker is None:
+            docs_and_scores = index.similarity_search_with_relevance_scores(query=item["query"], k=k)
+        else:
+            # 二階段:dense 撈寬(candidates),cross-encoder 重排,再取前 k。
+            #
+            # candidates 是 rerank 的上限 —— dense 沒撈到的文件,重排救不回來。
+            # 但「開大一定更好」是錯的:實測把 candidates 從 20 開到全部 87 個 chunk,
+            # 英文 recall@3 從 80% 掉到 70%、MRR 從 0.775 掉到 0.742,中文持平。
+            # 多給的候選大多是雜訊,reranker 在它不擅長的語言上會把雜訊拉上來。
+            # 所以 candidates 要調,而且要用這支腳本量,不能假設越大越好。
+            pool = index.similarity_search_with_relevance_scores(query=item["query"], k=candidates)
+            docs_and_scores = reranker.rerank(item["query"], [doc for doc, _ in pool], top_k=k)
 
         # 以「文件」而非「chunk」排名:同一份文件被撈到三個 chunk 仍然只算一個名次,
         # 否則一份長文件塞滿 top-k,recall@3 就失去意義了。
@@ -232,6 +245,9 @@ def get_args() -> argparse.Namespace:
     p.add_argument("--chunk-overlap", type=int, default=None, help="覆寫評估集裡的 chunk_overlap")
     p.add_argument("--k", type=int, default=10, help="每題撈幾筆再排名。預設 10")
     p.add_argument("--threshold", type=float, default=None, help="額外報告這個相關度門檻會濾掉多少本來撈得到的題目")
+    p.add_argument("--rerank", action="store_true", help="開啟第二階段 cross-encoder 重排")
+    p.add_argument("--rerank-model", default=None, help="覆寫 reranker 模型,指定即視為開啟 --rerank")
+    p.add_argument("--candidates", type=int, default=None, help="第一階段撈幾筆給 reranker。預設取 RERANK_CANDIDATES")
     p.add_argument("--json", default=None, help="把結果寫成 JSON,方便比較兩次跑的差異")
     return p.parse_args()
 
@@ -249,10 +265,14 @@ def main() -> None:
 
     embedder = create_embedder(provider=args.embedding_provider, model_name=args.embedding_model)
 
+    rerank_on = args.rerank or args.rerank_model is not None
+    reranker = create_reranker(model_name=args.rerank_model, enabled=rerank_on)
+    candidates = args.candidates or settings.RERANK_CANDIDATES
+
     work_dir = Path(tempfile.mkdtemp(prefix="retrieval-eval-"))
     try:
         index, n_docs, n_chunks = build_index(corpus.get("paths", []), chunk_size, chunk_overlap, embedder, work_dir)
-        results = evaluate(index, queries, args.k)
+        results = evaluate(index, queries, args.k, reranker=reranker, candidates=candidates)
         payload = report(
             results,
             args.threshold,
@@ -263,6 +283,7 @@ def main() -> None:
                 "chunk_size / overlap": f"{chunk_size} / {chunk_overlap}",
                 "語料": f"{n_docs} 份文件 -> {n_chunks} 個 chunk",
                 "k": args.k,
+                "rerank": (f"{reranker.model_name} (candidates={candidates})" if reranker else "關閉"),
             },
         )
     finally:

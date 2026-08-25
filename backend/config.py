@@ -81,6 +81,22 @@ class Settings(BaseSettings):
     # Set to a negative value to keep every retrieved chunk.
     RETRIEVAL_THRESHOLD: float = 0.2
 
+    # Reranking Configuration
+    # Two-stage retrieval: the dense search casts a wide net of RERANK_CANDIDATES chunks, then a
+    # cross-encoder reorders them and NUM_RETRIEVALS survive. Off by default -- it costs a model
+    # load and a forward pass per query, which is not a trade every deployment wants to make.
+    RERANK_ENABLED: bool = False
+    # Must cover the corpus languages. An English-only reranker reorders other scripts into
+    # nonsense and nothing about the output looks wrong.
+    RERANK_MODEL: str = "BAAI/bge-reranker-base"
+    # Candidates fed to the reranker. This is the ceiling on what reranking can fix: a document
+    # the dense stage never returned cannot be promoted, however good the cross-encoder is.
+    RERANK_CANDIDATES: int = 20
+    # Threshold applied to the reranked score instead of RETRIEVAL_THRESHOLD when reranking is
+    # on. Separate setting because the scales differ -- both land in [0, 1], but a cross-encoder
+    # sigmoid and a cosine relevance score are not the same 0.5. Measure it, do not port it.
+    RERANK_THRESHOLD: float = 0.3
+
     # Chat History Configuration
     CHAT_HISTORY_LENGTH: int = 2
 
