@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     NUM_RETRIEVALS: int = 2
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 50
+    # Minimum relevance score (0 = unrelated, 1 = identical) a chunk needs to reach the prompt.
+    # This has to be tunable per deployment because the score scale is a property of the
+    # embedding model, not of the corpus: 0.2 is a reasonable floor for all-MiniLM-L6-v2 but far
+    # too low for a multilingual model, where unrelated text routinely scores above it. Left
+    # hardcoded, swapping EMBEDDING_MODEL silently changes what counts as "relevant".
+    # Set to a negative value to keep every retrieved chunk.
+    RETRIEVAL_THRESHOLD: float = 0.2
 
     # Chat History Configuration
     CHAT_HISTORY_LENGTH: int = 2

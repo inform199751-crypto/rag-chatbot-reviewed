@@ -92,7 +92,9 @@ async def stream_rag_response(
             llm_client, query.text, chat_history=chat_history, max_new_tokens=settings.MAX_NEW_TOKENS
         )
         retrieved_contents, sources = index.similarity_search_with_threshold(
-            query=refined_user_input, k=settings.NUM_RETRIEVALS
+            query=refined_user_input,
+            k=settings.NUM_RETRIEVALS,
+            threshold=settings.RETRIEVAL_THRESHOLD,
         )
         if retrieved_contents:
             retrieval_response += "Here are the retrieved text chunks with a content preview: \n\n"
