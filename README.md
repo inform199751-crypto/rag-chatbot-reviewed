@@ -21,6 +21,8 @@ fork. All four are silent failures: nothing raises, nothing warns, and the sympt
 | 3 | Document list read from process memory | Indexed documents never appeared in the UI | [`documents.py`](backend/api/endpoints/documents.py) |
 | 4 | Unreachable branch in the refine strategy | First retrieved chunk wasted on a `None` prompt | [`ctx_strategy.py`](backend/services/chat_service/ctx_strategy.py) |
 
+On top of the fixes, the LLM and the embedder are now pluggable, so the same RAG pipeline can run entirely on a local machine or entirely on hosted APIs. See [Set the LLM provider](#set-the-llm-provider).
+
 ### 1. Non-ASCII text was romanised before embedding
 
 `Chroma.from_chunks` called `clean(doc.page_content, no_emoji=True)`. `clean-text` defaults to `to_ascii=True` and
@@ -90,6 +92,7 @@ Check out the todo list to see the next steps and improvements we want to implem
 - [Bootstrap Environment](#bootstrap-environment)
     - [How to use the make file](#how-to-use-the-make-file)
     - [Environment](#environment)
+    - [Set the LLM provider](#set-the-llm-provider)
     - [Set the Open-Source LLM Model](#set-the-open-source-llm-model)
     - [Set the Embedding Model](#set-the-embedding-model)
     - [Set the Response Synthesis strategy](#set-the-response-synthesis-strategy)
@@ -212,6 +215,56 @@ yarn
 echo "VITE_API_URL=http://localhost:8000" > .env
 ```
 
+### Set the LLM provider
+
+The chat model and the embedding model are selected independently, so you can mix local and hosted
+components. Two variables control it:
+
+| Variable | Values | Default |
+|----------|--------|---------|
+| `LLM_PROVIDER` | `llamacpp`, `openrouter` | `llamacpp` |
+| `EMBEDDING_PROVIDER` | `sentence-transformers`, `openai` | `sentence-transformers` |
+
+The defaults keep everything on the local machine, so a fresh clone behaves exactly as upstream does
+and needs no API keys.
+
+#### Running the chat model on OpenRouter
+
+[OpenRouter](https://openrouter.ai) speaks the OpenAI chat-completions API, so no local server or
+GGUF download is involved. In the .𝐞𝐧𝐯:
+
+```
+LLM_PROVIDER="openrouter"
+OPENROUTER_API_KEY="<your OpenRouter key>"
+OPENROUTER_MODEL="nvidia/nemotron-3.5-lightning"
+```
+
+`OPENROUTER_MODEL` takes any slug from the [OpenRouter model list](https://openrouter.ai/models).
+Several carry a `:free` variant, which is a cheap way to try the pipeline end to end.
+
+Selecting `openrouter` without a key fails at startup with an explicit message rather than surfacing
+as a 401 on the first question.
+
+#### Running the embedder on OpenAI
+
+> [!IMPORTANT]
+> OpenRouter proxies chat completions only -- it does not serve embeddings. Putting the chat model on
+> OpenRouter and the embedder on OpenAI therefore needs **two separate keys**.
+
+```
+EMBEDDING_PROVIDER="openai"
+OPENAI_API_KEY="<your OpenAI key>"
+OPENAI_EMBEDDING_MODEL="text-embedding-3-small"
+```
+
+`text-embedding-3-small` returns 1536 dimensions and has no practical input-length ceiling for
+1000-character chunks, which removes the truncation risk that comes with the smaller local models
+described below.
+
+> [!WARNING]
+> Changing the embedding provider or model changes the vector space, so the index must be rebuilt
+> from scratch. Run the memory builder with `--full-rebuild`.
+
 ### Set the Open-Source LLM Model
 
 `llama-cpp` serves as a C++ backend designed to work efficiently with transformer-based models, which runs either on a `CPU` or `GPU`.
@@ -264,6 +317,8 @@ We also recommend few models to start in the table below.
 | DeepSeek R1 Distill Qwen 7B | 7B                 | 128k               | **Experimental** [Card](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF)                                                                   |
 
 ### Set the Embedding Model
+
+This section covers the local `sentence-transformers` backend, used when `EMBEDDING_PROVIDER="sentence-transformers"`. For the hosted alternative see [Running the embedder on OpenAI](#running-the-embedder-on-openai).
 
 For the semantic search, we support all the embedding models from `Sentence Transformers` but we tested those on the table below.
 

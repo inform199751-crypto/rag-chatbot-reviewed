@@ -3,6 +3,8 @@ from typing import Any
 import sentence_transformers
 import torch
 
+from memory.base_embedder import BaseEmbedder
+
 EMBEDDER_ARGS = {
     "jinaai/jina-embeddings-v5-text-nano-retrieval": {
         "trust_remote_code": True,
@@ -17,7 +19,7 @@ EMBEDDER_ARGS = {
 }
 
 
-class Embedder:
+class Embedder(BaseEmbedder):
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", cache_folder: str | None = None, **kwargs: Any):
         """
         Initialize the Embedder class with the specified parameters.

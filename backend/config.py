@@ -33,6 +33,19 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = f"sqlite:///{ROOT_PATH / 'vector_store' / 'registry.db'}"
 
+    # LLM Provider Selection
+    # "llamacpp" talks to a local llama.cpp server; "openrouter" calls a hosted model.
+    LLM_PROVIDER: str = "llamacpp"
+
+    # OpenRouter Configuration (used when LLM_PROVIDER="openrouter")
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "nvidia/nemotron-3.5-lightning"
+    OPENROUTER_TIMEOUT: int = 300
+    # Optional attribution headers shown on the OpenRouter dashboard.
+    OPENROUTER_APP_URL: str = ""
+    OPENROUTER_APP_TITLE: str = ""
+
     # llama.cpp Server Configuration
     LLAMA_SERVER_BASE_URL: str = "http://localhost:8080"
     LLAMA_SERVER_TIMEOUT: int = 300
@@ -49,7 +62,13 @@ class Settings(BaseSettings):
     MAX_NEW_TOKENS: int = 512
 
     # Retrieval Configuration
+    # "sentence-transformers" embeds locally; "openai" calls OpenAI's embeddings API.
+    # Note: OpenRouter proxies chat completions only, so embeddings need an OpenAI key of
+    # their own even when the LLM is served by OpenRouter.
+    EMBEDDING_PROVIDER: str = "sentence-transformers"
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    OPENAI_API_KEY: str = ""
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     SYNTHESIS_STRATEGY: str = "tree-summarization"
     NUM_RETRIEVALS: int = 2
     CHUNK_SIZE: int = 1000

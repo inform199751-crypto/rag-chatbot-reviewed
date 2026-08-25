@@ -6,7 +6,7 @@ import chromadb.config
 from chromadb.utils.batch_utils import create_batches
 from cleantext import clean
 from helpers.log import get_logger
-from memory.embedder import Embedder
+from memory.base_embedder import BaseEmbedder
 from memory.vector_database.distance_metric import DistanceMetric, get_relevance_score_fn
 from services.ingest_documents_service.document import Document
 
@@ -17,7 +17,7 @@ class Chroma:
     def __init__(
         self,
         client: chromadb.Client = None,
-        embedding: Embedder | None = None,
+        embedding: BaseEmbedder | None = None,
         persist_directory: str | None = None,
         collection_name: str = "default",
         collection_metadata: dict | None = None,
@@ -30,7 +30,7 @@ class Chroma:
         Args:
             client (chromadb.Client, optional): An existing Chroma client instance. If not provided, a new client will
                 be created. Defaults to None.
-            embedding (Embedder | None, optional): An instance of the Embedder class to generate embeddings for the
+            embedding (BaseEmbedder | None, optional): An embedder used to generate embeddings for the
                 texts. If not provided, Chroma will use sentence transformer embedding function as a default.
                 Defaults to None.
             persist_directory (str | None, optional): Directory path to persist the Chroma collection. If not provided,
@@ -79,7 +79,7 @@ class Chroma:
         )
 
     @property
-    def embeddings(self) -> Embedder | None:
+    def embeddings(self) -> BaseEmbedder | None:
         return self.embedding
 
     def __query_collection(

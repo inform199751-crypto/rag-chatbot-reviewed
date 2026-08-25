@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from config import settings
-from memory.embedder import Embedder
+from memory.factory import create_embedder
 from memory.vector_database.chroma import Chroma
 
 
@@ -15,7 +14,7 @@ def init_vector_database(vector_store_path: Path) -> Chroma:
     Returns:
         Chroma: An instance of the Vector Database.
     """
-    embedding = Embedder(model_name=settings.EMBEDDING_MODEL)
+    embedding = create_embedder()
     index = Chroma(is_persistent=True, persist_directory=str(vector_store_path), embedding=embedding)
 
     return index

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from database import init_db_engine
 from helpers.log import get_logger
-from memory.embedder import Embedder
+from memory.factory import create_embedder
 from memory.vector_database.chroma import Chroma
 from memory.vector_database.id_generator import generate_id
 from services.ingest_documents_service.document import Document
@@ -40,7 +40,8 @@ def build_memory_index(
     chunk_size: int,
     chunk_overlap: int,
     full_rebuild: bool = False,
-    model_name: str = "jinaai/jina-embeddings-v5-text-small-retrieval",
+    model_name: str | None = None,
+    embedding_provider: str | None = None,
 ) -> dict:
     """
     Build or incrementally update the vector memory index.
@@ -54,7 +55,7 @@ def build_memory_index(
     # ------------------------------------------------------------------
     # bootstrap vector DB + registry
     # ------------------------------------------------------------------
-    embedding = Embedder(model_name=model_name)
+    embedding = create_embedder(provider=embedding_provider, model_name=model_name)
     vector_database = Chroma(is_persistent=True, persist_directory=str(vector_store_path), embedding=embedding)
 
     session = Session(init_db_engine())
@@ -170,10 +171,18 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-name",
         type=str,
-        help="The name of the SentenceTransformer model to use for embedding. "
-        "Defaults to 'jinaai/jina-embeddings-v5-text-small-retrieval'.",
+        help="Embedding model to use. Defaults to the model configured for the selected provider, "
+        "so that the index is built with the same model the API searches with.",
         required=False,
-        default="jinaai/jina-embeddings-v5-text-small-retrieval",
+        default=None,
+    )
+    parser.add_argument(
+        "--embedding-provider",
+        type=str,
+        help="Embedding backend: 'sentence-transformers' or 'openai'. "
+        "Defaults to EMBEDDING_PROVIDER from the environment.",
+        required=False,
+        default=None,
     )
 
     return parser.parse_args()
@@ -191,6 +200,7 @@ def main(parameters):
         chunk_overlap=parameters.chunk_overlap,
         full_rebuild=parameters.full_rebuild,
         model_name=parameters.model_name,
+        embedding_provider=parameters.embedding_provider,
     )
 
 
