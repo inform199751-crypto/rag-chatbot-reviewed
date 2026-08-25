@@ -1,0 +1,115 @@
+# 檢索評估集。
+#
+# 這份檔案只評檢索,不評生成。原因:兩者混在一起量,分數變差時分不出是撈錯了
+# 還是模型講錯了。檢索是可以離線、無 API key、可重複量測的那一半,先把它釘住。
+#
+# 每一題的 relevant 是「這個 query 的答案確實寫在裡面」的文件。
+# 寫 GT 的規則:
+#   1. 答案必須真的在該文件裡,不能靠常識推得出來 —— 否則量到的是模型知識,不是檢索。
+#   2. 一題盡量只對一份文件。對到多份時 recall@1 會變得沒有意義。
+#   3. query 用使用者真的會打的話,不要用文件裡的原句 —— 抄原句是在量字串比對。
+#
+# 語言標記存在的理由:混語言索引下,中文 query 誤撈英文文件是最常見的失效模式,
+# 分開報表才看得出來。
+
+corpus:
+  paths:
+    - notes/technical            # 英文,repo 自己的真實筆記
+    - tests/retrieval/corpus_zh  # 中文 fixture
+
+  # 評估用的切塊參數。刻意與 .env 分開:評估要能重複,不能隨部署設定漂移。
+  chunk_size: 400
+  chunk_overlap: 80
+
+queries:
+  # ─── 英文 ───────────────────────────────────────────────
+  - id: EN-01
+    lang: en
+    query: Why does caching keys and values make token generation faster?
+    relevant: [notes/technical/llamacpp/kv-cache.md]
+
+  - id: EN-02
+    lang: en
+    query: Which integer do I pass to get 4-bit quantisation for the cache?
+    relevant: [notes/technical/llamacpp/kv-cache.md]
+
+  - id: EN-03
+    lang: en
+    query: How do I let a Docker container reach my NVIDIA GPU?
+    relevant: [notes/technical/llamacpp/server-docker.md]
+
+  - id: EN-04
+    lang: en
+    query: Can I swap the loaded model without restarting the server?
+    relevant: [notes/technical/llamacpp/live-model-switching.md]
+
+  - id: EN-05
+    lang: en
+    query: Is text pulled straight out of a PDF or does it go through OCR first?
+    relevant: [notes/technical/pdf-parsing.md]
+
+  - id: EN-06
+    lang: en
+    query: How are several retrieved passages combined into one answer?
+    relevant: [notes/technical/tree-summarization-strategy.md]
+
+  - id: EN-07
+    lang: en
+    query: What is the command to install the Python dependency manager?
+    relevant: [notes/technical/poetry.md]
+
+  - id: EN-08
+    lang: en
+    query: How do I stop people reading my shipped JavaScript bundle?
+    relevant: [notes/technical/protect-js-frontend-projects.md]
+
+  - id: EN-09
+    lang: en
+    query: What protocol lets a model call external tools?
+    relevant: [notes/technical/mcp/README.md]
+
+  - id: EN-10
+    lang: en
+    query: How do I run inference locally without sending code to a vendor?
+    relevant: [notes/technical/llamacpp/private-claude-code.md]
+
+  # ─── 繁體中文 ───────────────────────────────────────────
+  - id: ZH-01
+    lang: zh
+    query: 中文語料的 chunk_size 應該設多少?
+    relevant: [tests/retrieval/corpus_zh/chunking-chinese.md]
+
+  - id: ZH-02
+    lang: zh
+    query: 為什麼數字元不等於數 token?
+    relevant: [tests/retrieval/corpus_zh/chunking-chinese.md]
+
+  - id: ZH-03
+    lang: zh
+    query: 換了 embedding 模型之後索引要不要整個重建?
+    relevant: [tests/retrieval/corpus_zh/embedding-model-choice.md]
+
+  - id: ZH-04
+    lang: zh
+    query: 有哪些多語言的 embedding 模型可以選,維度各是多少?
+    relevant: [tests/retrieval/corpus_zh/embedding-model-choice.md]
+
+  - id: ZH-05
+    lang: zh
+    query: 4GB 顯卡跑得動幾 B 的模型?
+    relevant: [tests/retrieval/corpus_zh/local-deployment-hardware.md]
+
+  - id: ZH-06
+    lang: zh
+    query: 容器啟動時說 cuda 版本不符要怎麼辦?
+    relevant: [tests/retrieval/corpus_zh/local-deployment-hardware.md]
+
+  - id: ZH-07
+    lang: zh
+    query: 純 CPU 推論一秒大概幾個 token?
+    relevant: [tests/retrieval/corpus_zh/local-deployment-hardware.md]
+
+  - id: ZH-08
+    lang: zh
+    query: 相關度門檻可以沿用預設值嗎?
+    relevant: [tests/retrieval/corpus_zh/embedding-model-choice.md]
