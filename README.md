@@ -327,6 +327,13 @@ In the .𝐞𝐧𝐯 we need to set the `EMBEDDING_MODEL` variable with the name
 EMBEDDING_MODEL="all-MiniLM-L6-v2"
 ```
 
+> [!NOTE]
+> The `jina-embeddings-v5` entries below request `bfloat16`, which is a GPU recommendation. On a
+> CPU-only machine that dtype is only competitive where AVX512-BF16 or AMX is present, so the
+> embedder now drops the override and loads at the model's default precision instead. The `nano`
+> variant is the better fit there: 8k tokens is ample for 1000-character chunks, and it scores
+> 63.26 against the `small` variant's 64.88 at roughly a third of the parameters.
+
 To find the list of best embeddings models for the retrieval task in the language (or multiple languages) go to the [Massive Text Embedding Benchmark (MTEB) Leaderboard](https://huggingface.co/spaces/mteb/leaderboard).
 We do recommend to use the [jina-embeddings-v5-text](https://huggingface.co/collections/jinaai/jina-embeddings-v5-text) models,
 which are small (239M & 677M parameters) with SOTA performance for multilingual retrieval tasks, and they perform very well on the MTEB benchmark.

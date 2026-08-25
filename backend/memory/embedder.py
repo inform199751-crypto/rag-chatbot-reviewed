@@ -33,6 +33,14 @@ class Embedder(BaseEmbedder):
 
         args = EMBEDDER_ARGS.get(model_name, None)
         if args is not None:
+            # Copy before touching `model_kwargs`: EMBEDDER_ARGS is module-level state shared by
+            # every instantiation, so mutating it in place would leak into later ones.
+            args = {**args, "model_kwargs": dict(args.get("model_kwargs", {}))}
+            if device == "cpu":
+                # bfloat16 is a GPU recommendation. On CPU it is only competitive where
+                # AVX512-BF16 or AMX is available and is markedly slower than float32 elsewhere,
+                # so drop the override and let the model load at its default precision.
+                args["model_kwargs"].pop("dtype", None)
             kwargs.update(args)
 
         self.client = sentence_transformers.SentenceTransformer(
