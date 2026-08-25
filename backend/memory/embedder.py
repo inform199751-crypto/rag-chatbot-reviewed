@@ -76,6 +76,8 @@ class Embedder(BaseEmbedder):
             texts (list[str]): The list of texts to embed.
             multi_process (bool): If True, use multiple processes to compute embeddings.
             **encode_kwargs (Any): Additional keyword arguments to pass when calling the `encode` method of the model.
+                `show_progress_bar` defaults to True here because indexing is a batch job someone is watching;
+                pass `show_progress_bar=False` to silence it.
 
         Returns:
             list[list[float]]: A list of embeddings, one for each text.
@@ -87,9 +89,8 @@ class Embedder(BaseEmbedder):
             embeddings = self.client.encode(sentences=texts, pool=pool)
             sentence_transformers.SentenceTransformer.stop_multi_process_pool(pool)
         else:
-            embeddings = self.client.encode(
-                sentences=texts, normalize_embeddings=False, show_progress_bar=True, **encode_kwargs
-            )
+            encode_kwargs.setdefault("show_progress_bar", True)
+            embeddings = self.client.encode(sentences=texts, normalize_embeddings=False, **encode_kwargs)
 
         return embeddings.tolist()
 
@@ -107,14 +108,18 @@ class Embedder(BaseEmbedder):
 
         Args:
             text (str): The text to embed.
+            **encode_kwargs: Additional keyword arguments to pass when calling the `encode` method of the model.
 
         Returns:
             list[float]: Embeddings for the text.
         """
         text = self._clean_texts([text])[0]
 
-        embeddings = self.client.encode(
-            sentences=text, normalize_embeddings=False, show_progress_bar=True, **encode_kwargs
-        )
+        # No progress bar on the query path. This runs once per user message, always on a single
+        # string, so the bar can never show anything useful -- but it does write a tqdm frame to
+        # stderr on every request. In a served deployment that buries the real log lines, and the
+        # bar redraws with carriage returns, so a log aggregator sees one unreadable line per query.
+        encode_kwargs.setdefault("show_progress_bar", False)
+        embeddings = self.client.encode(sentences=text, normalize_embeddings=False, **encode_kwargs)
 
         return embeddings.tolist()
