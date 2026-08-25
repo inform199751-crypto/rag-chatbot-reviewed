@@ -4,6 +4,67 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 [![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
+---
+
+## About this fork
+
+This is a fork of **[umbertogriffo/rag-chatbot](https://github.com/umbertogriffo/rag-chatbot)** (MIT licence, retained
+in full). The upstream project is not my work.
+
+My contribution is a review of the document-indexing pipeline and the four defects it surfaced, each fixed in this
+fork. All four are silent failures: nothing raises, nothing warns, and the symptom appears far from the cause.
+
+| # | Defect | Impact | Fixed in |
+|---|--------|--------|----------|
+| 1 | Non-ASCII text romanised before embedding | Retrieval broken for any non-Latin corpus | [`chroma.py`](backend/memory/vector_database/chroma.py) |
+| 2 | Chat history shared by every connection | One user's conversation leaked into another's prompt | [`chat_stream.py`](backend/api/endpoints/chat_stream.py) |
+| 3 | Document list read from process memory | Indexed documents never appeared in the UI | [`documents.py`](backend/api/endpoints/documents.py) |
+| 4 | Unreachable branch in the refine strategy | First retrieved chunk wasted on a `None` prompt | [`ctx_strategy.py`](backend/services/chat_service/ctx_strategy.py) |
+
+### 1. Non-ASCII text was romanised before embedding
+
+`Chroma.from_chunks` called `clean(doc.page_content, no_emoji=True)`. `clean-text` defaults to `to_ascii=True` and
+`lower=True`, so a Chinese document was stored and embedded as pinyin -- `利忠文 營運報表` became
+`li zhong wen ying yun bao biao`. The query path (`embed_query`) applies no such transform, so indexed documents and
+incoming queries stopped sharing a vector space.
+
+Passing `to_ascii=False, lower=False` keeps the source text intact. **A full index rebuild is required**, since
+existing vectors were computed from the romanised text.
+
+### 2. Chat history was shared by every connection
+
+`chat_history` was a module-level singleton handed to every WebSocket connection through the dependency system. With
+two users connected, `refine_question` rewrote one user's question using the other's conversation, and
+`DELETE /chat/history` cleared it for both.
+
+Each connection now builds its own `ChatHistory`. The endpoint is kept as a no-op so the existing client contract
+holds -- the frontend already reconnects, and that is what clears the history.
+
+### 3. The document list read from process memory
+
+`GET /documents` returned an in-process dict populated only by the upload endpoint. Documents ingested by
+`scripts/memory_builder.py` never appeared, the list emptied on restart, and deleted documents lingered until then --
+all while the persistent registry held the correct state.
+
+The endpoint now reads `DocumentRegistry.get_all()`.
+
+### 4. Unreachable branch in `CreateAndRefineStrategy`
+
+The loop runs `enumerate(retrieved_contents, start=1)`, so `if idx == 0` never fired. The first chunk took the refine
+path with `existing_answer=str(None)`, asking the model to refine an answer literally named `None` -- against a
+template that tells it to return the original answer when the context is unhelpful.
+
+### How these were verified
+
+- `ruff check` and `ruff format --check` pass across every changed file
+- `ChatHistory` trimming and per-connection isolation unit-tested
+- The `clean()` change tested against the pinned `clean-text 0.7.1` and `Unidecode 1.3.8`
+- The registry-to-response mapping tested against SQLite
+
+The `api/` suite was **not** run: it requires a live llama.cpp server, and the project pins `python >=3.12,<3.13`.
+
+---
+
 Check out the todo list to see the next steps and improvements we want to implement in this project [here](notes/todo.md).
 
 > [!IMPORTANT]
