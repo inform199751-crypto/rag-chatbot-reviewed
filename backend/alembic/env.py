@@ -19,6 +19,12 @@ if config.config_file_name is not None:
 
 # Use SQLModel's combined metadata so Alembic auto-generates
 # migrations for every table model in the registry.
+# Import every model so SQLModel.metadata is populated before it is handed to Alembic.
+# Without these, `--autogenerate` compares the live database against an empty metadata and
+# emits a migration that drops every table -- silently, and only noticed on the next upgrade.
+from models.conversation import ChatMessage, Conversation  # noqa: E402,F401
+from models.document_record import DocumentRecord  # noqa: E402,F401
+
 target_metadata = SQLModel.metadata
 
 
@@ -57,8 +63,7 @@ def run_migrations_online() -> None:
     # Get database URL from environment variable
     if settings.DATABASE_URL is None:
         logger.info(
-            "DATABASE_URL environment variable is not set. "
-            "Applying migrations Using sqlalchemy.url from alembic.ini."
+            "DATABASE_URL environment variable is not set. Applying migrations Using sqlalchemy.url from alembic.ini."
         )
     else:
         logger.info("Applying migrations Using DATABASE_URL from environment variable.")

@@ -1,4 +1,5 @@
 import time
+from typing import Any, NamedTuple
 
 from chat_history import ChatHistory
 from config import settings
@@ -24,6 +25,22 @@ from services.retrieval_service import explain_no_context, retrieve
 from api.deps import LlamaCppClientDep, RerankerDep, VectorDatabaseDep
 
 logger = get_logger(__name__)
+
+
+class TurnResult(NamedTuple):
+    """What one exchange produced, so the caller can persist it.
+
+    Returned rather than written here on purpose: these functions own the socket, not the
+    database, and a failed write should not be able to interrupt a stream that already
+    succeeded.
+    """
+
+    answer: str = ""
+    grounded: bool | None = None
+    # A tuple, not a list: NamedTuple evaluates defaults once and shares them across every
+    # instance, so a mutable default would be one object handed out to all of them.
+    sources: tuple[dict[str, Any], ...] = ()
+    declined: bool = False
 
 
 async def _stream_tokens(websocket: WebSocket, llm_client, streamer) -> str:
@@ -58,6 +75,7 @@ async def stream_chat_response(
         chat_history (ChatHistory): The chat history for this connection.
     """
     start_time = time.time()
+    result = TurnResult()
     try:
         # No retrieval on this path, so nothing is grounded in documents. Saying so explicitly
         # keeps the client's rendering rule the same for both modes.
@@ -74,6 +92,7 @@ async def stream_chat_response(
         final_answer = _final_answer(llm_client, full_response, "I didn't provide the answer; perhaps I can try again.")
         chat_history.append(f"question: {query.text}, answer: {final_answer}")
         logger.debug(f"Updated chat history: {chat_history}")
+        result = TurnResult(answer=final_answer)
     except Exception as exc:
         logger.exception("Error during streaming: %s", exc)
         await websocket.send_text(error_event("Error during streaming."))
@@ -82,6 +101,7 @@ async def stream_chat_response(
         # event, so a path that skips it leaves the UI stuck with no way to recover.
         await websocket.send_text(done_event(took_seconds=round(time.time() - start_time, 2)))
         logger.info(f"\n--- Took {time.time() - start_time:.2f} seconds ---")
+    return result
 
 
 # TODO: https://github.com/umbertogriffo/rag-chatbot/pull/10#discussion_r2936567672
@@ -107,6 +127,7 @@ async def stream_rag_response(
     """
     start_time = time.time()
     declined = False
+    result = TurnResult()
     try:
         ctx_synthesis_strategy = get_ctx_synthesis_strategy(settings.SYNTHESIS_STRATEGY, llm=llm_client)
 
@@ -140,7 +161,13 @@ async def stream_rag_response(
             declined = True
             chat_history.append(f"question: {query.text}, answer: (declined -- no supporting documents)")
             logger.info("Declined to answer without context (reason=%s)", outcome.reason)
-            return
+            result = TurnResult(
+                answer=explain_no_context(outcome).strip(),
+                grounded=False,
+                sources=tuple(outcome.sources),
+                declined=True,
+            )
+            return result
 
         await websocket.send_text(answer_start_event(grounded=grounded))
 
@@ -158,6 +185,7 @@ async def stream_rag_response(
             llm_client, full_response, "I wasn't able to provide the answer; Do you want me to try again?"
         )
         chat_history.append(f"question: {query.text}, answer: {final_answer}")
+        result = TurnResult(answer=final_answer, grounded=grounded, sources=tuple(outcome.sources))
     except Exception as exc:
         logger.exception("Error during RAG streaming: %s", exc)
         await websocket.send_text(error_event("Error during RAG streaming."))

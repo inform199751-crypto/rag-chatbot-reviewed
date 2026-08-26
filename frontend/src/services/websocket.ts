@@ -51,10 +51,31 @@ export class ChatWebSocket {
   private ws: WebSocket | null = null;
   private readonly onEvent: EventHandler;
   private readonly onError: ErrorHandler;
+  private conversationId: string | null;
 
-  constructor(onEvent: EventHandler, onError: ErrorHandler) {
+  constructor(onEvent: EventHandler, onError: ErrorHandler, conversationId: string | null = null) {
     this.onEvent = onEvent;
     this.onError = onError;
+    this.conversationId = conversationId;
+  }
+
+  /**
+   * Point subsequent connections at a different thread.
+   *
+   * The id travels on the URL, so it is fixed for the life of a socket -- changing it has to
+   * drop the connection, or the server would keep persisting into the thread it was opened
+   * with while the client believes it has moved on.
+   */
+  setConversationId(conversationId: string | null): void {
+    if (conversationId === this.conversationId) return;
+    this.conversationId = conversationId;
+    this.disconnect();
+  }
+
+  private url(): string {
+    return this.conversationId
+      ? `${WS_URL}?conversation_id=${encodeURIComponent(this.conversationId)}`
+      : WS_URL;
   }
 
   private handleFrame(raw: string): void {
@@ -96,7 +117,7 @@ export class ChatWebSocket {
         return;
       }
 
-      this.ws = new WebSocket(WS_URL);
+      this.ws = new WebSocket(this.url());
 
       this.ws.onopen = () => {
         resolve();

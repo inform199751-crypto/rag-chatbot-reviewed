@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ChatWebSocket, type SourcesData, type StreamEvent } from '../services/websocket';
-import { resetChatHistory } from '../services/api';
+import { getConversation, resetChatHistory, type StoredMessage } from '../services/api';
 
 export interface Message {
   id: number;
@@ -89,11 +89,46 @@ export function applyTransportError(messages: Message[], error: string, nextId: 
   ];
 }
 
+
+const CONVERSATION_KEY = 'rag-chatbot.conversation-id';
+
+/**
+ * The thread this browser is in, created on first use and kept across reloads.
+ *
+ * Generated client-side rather than handed out by the server so that a conversation exists
+ * before its first message does -- there is nothing to ask the server for until something has
+ * been said, and a round trip on page load to obtain an empty thread buys nothing.
+ */
+function loadConversationId(): string {
+  const existing = localStorage.getItem(CONVERSATION_KEY);
+  if (existing) return existing;
+  const fresh = crypto.randomUUID();
+  localStorage.setItem(CONVERSATION_KEY, fresh);
+  return fresh;
+}
+
+/** Turn a stored row back into the shape the UI renders. */
+function fromStored(row: StoredMessage, id: number): Message {
+  return {
+    id,
+    text: row.content,
+    sender: row.role === 'user' ? 'user' : 'bot',
+    timestamp: new Date(row.created_at),
+    // `?? undefined` rather than leaving null: the UI treats undefined as "retrieval never ran"
+    // and false as "ran and found nothing", and those render differently.
+    grounded: row.grounded ?? undefined,
+    sources: row.sources.length
+      ? { documents: row.sources, grounded: row.grounded ?? false, reason: null, message: '' }
+      : undefined,
+  };
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const wsRef = useRef<ChatWebSocket | null>(null);
   const idRef = useRef(0);
+  const [conversationId, setConversationId] = useState(loadConversationId);
 
   // Defined at hook level rather than inside the effect: nesting them one layer deeper puts the
   // `setMessages` updater five callbacks in, which is past what the linter allows and past what
@@ -119,12 +154,31 @@ export function useChat() {
   }, []);
 
   useEffect(() => {
-    const ws = new ChatWebSocket(handleEvent, handleError);
+    const ws = new ChatWebSocket(handleEvent, handleError, conversationId);
     wsRef.current = ws;
     return () => {
       ws.disconnect();
     };
-  }, [handleEvent, handleError]);
+  }, [handleEvent, handleError, conversationId]);
+
+  // Restore the transcript. A failure here is left silent on purpose: the thread is a
+  // convenience, and an error banner about history the user has not asked for yet would be the
+  // first thing they see on an otherwise working page.
+  useEffect(() => {
+    let cancelled = false;
+    getConversation(conversationId)
+      .then((data) => {
+        if (cancelled || data.messages.length === 0) return;
+        idRef.current = data.messages.length;
+        setMessages(data.messages.map((row, i) => fromStored(row, i + 1)));
+      })
+      .catch(() => {
+        /* start empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
   const sendMessage = useCallback(
     (text: string, rag: boolean) => {
@@ -151,11 +205,19 @@ export function useChat() {
     [isStreaming],
   );
 
+  /**
+   * Start a new thread.
+   *
+   * The old one is kept rather than deleted -- persisting a transcript and then destroying it
+   * on "new chat" would defeat the point. Deleting is a separate, explicit action.
+   */
   const clearMessages = useCallback(() => {
+    const fresh = crypto.randomUUID();
+    localStorage.setItem(CONVERSATION_KEY, fresh);
     setMessages([]);
     idRef.current = 0;
     setIsStreaming(false);
-    wsRef.current?.reconnect();
+    setConversationId(fresh);
     resetChatHistory();
   }, []);
 

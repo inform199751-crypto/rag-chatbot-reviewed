@@ -65,3 +65,21 @@ export async function getCapabilities(): Promise<Capabilities> {
   const response = await axios.get<Capabilities>(`${API_BASE}/capabilities`);
   return response.data;
 }
+
+export interface StoredMessage {
+  id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  grounded: boolean | null;
+  sources: { score: number; document: string | null; content_preview: string }[];
+}
+
+export async function getConversation(
+  conversationId: string,
+): Promise<{ conversation_id: string; messages: StoredMessage[] }> {
+  const response = await axios.get<{ conversation_id: string; messages: StoredMessage[] }>(
+    `${API_BASE}/conversations/${conversationId}`,
+  );
+  return response.data;
+}
