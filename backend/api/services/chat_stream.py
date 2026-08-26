@@ -13,8 +13,9 @@ from services.chat_service.conversation_handler import (
     refine_question,
 )
 from services.chat_service.ctx_strategy import get_ctx_synthesis_strategy
+from services.retrieval_service import retrieve
 
-from api.deps import LlamaCppClientDep, VectorDatabaseDep
+from api.deps import LlamaCppClientDep, RerankerDep, VectorDatabaseDep
 
 logger = get_logger(__name__)
 
@@ -71,6 +72,7 @@ async def stream_rag_response(
     query: ChatRequest,
     chat_history: ChatHistory,
     index: VectorDatabaseDep,
+    reranker: RerankerDep = None,
 ):
     """
     Helper function to stream RAG responses token by token.
@@ -80,6 +82,9 @@ async def stream_rag_response(
         query (ChatRequest): The chat request containing the user's query.
         chat_history (ChatHistory): The chat history for this connection.
         index (VectorDatabaseDep): The vector database dependency for retrieval.
+        reranker (RerankerDep): The cross-encoder for the second stage, or None to retrieve in
+            one stage. Defaults to None so existing callers -- including the tests -- keep
+            working without being rewritten.
     """
     try:
         start_time = time.time()
@@ -91,10 +96,14 @@ async def stream_rag_response(
         refined_user_input = await refine_question(
             llm_client, query.text, chat_history=chat_history, max_new_tokens=settings.MAX_NEW_TOKENS
         )
-        retrieved_contents, sources = index.similarity_search_with_threshold(
+        retrieved_contents, sources = retrieve(
+            index,
             query=refined_user_input,
-            k=settings.NUM_RETRIEVALS,
+            num_retrievals=settings.NUM_RETRIEVALS,
             threshold=settings.RETRIEVAL_THRESHOLD,
+            reranker=reranker,
+            candidates=settings.RERANK_CANDIDATES,
+            rerank_threshold=settings.RERANK_THRESHOLD,
         )
         if retrieved_contents:
             retrieval_response += "Here are the retrieved text chunks with a content preview: \n\n"

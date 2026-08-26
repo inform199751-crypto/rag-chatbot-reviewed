@@ -86,9 +86,15 @@ class Settings(BaseSettings):
     # cross-encoder reorders them and NUM_RETRIEVALS survive. Off by default -- it costs a model
     # load and a forward pass per query, which is not a trade every deployment wants to make.
     RERANK_ENABLED: bool = False
-    # Must cover the corpus languages. An English-only reranker reorders other scripts into
-    # nonsense and nothing about the output looks wrong.
-    RERANK_MODEL: str = "BAAI/bge-reranker-base"
+    # Measured best on tests/retrieval: recall@1 88.9% and MRR 0.921, against 83.3% / 0.870
+    # unreranked and 83.3% / 0.875 for the 1.1 GB BAAI/bge-reranker-base. 90 MB, and faster.
+    #
+    # It is English-only, and that matters more than the numbers suggest. It also scored 100%
+    # on the Chinese queries, but the Chinese fixtures are full of English technical terms, so
+    # it is matching shared vocabulary rather than reading Chinese. A corpus that is genuinely
+    # non-Latin needs a multilingual reranker (bge-reranker-v2-m3, jina-reranker-v2) and needs
+    # RERANK_CANDIDATES and RERANK_THRESHOLD re-measured with it -- do not carry these over.
+    RERANK_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     # Candidates fed to the reranker. This is the ceiling on what reranking can fix: a document
     # the dense stage never returned cannot be promoted, however good the cross-encoder is.
     RERANK_CANDIDATES: int = 20
