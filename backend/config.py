@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     # sigmoid and a cosine relevance score are not the same 0.5. Measure it, do not port it.
     RERANK_THRESHOLD: float = 0.3
 
+    # When retrieval finds nothing, answer from the model's own knowledge anyway.
+    # True keeps the existing behaviour, but the answer is now labelled as ungrounded -- the
+    # failure this addresses was never the fallback itself, it was that the user could not tell
+    # a document-backed answer from an invented one. Set False for deployments where an answer
+    # with no source is worse than no answer, which is most of the ones people call "RAG".
+    ANSWER_WITHOUT_CONTEXT: bool = True
+
     # Chat History Configuration
     CHAT_HISTORY_LENGTH: int = 2
 
