@@ -30,6 +30,7 @@ class Embedder(BaseEmbedder):
             **kwargs (Any): Additional keyword arguments to pass to the SentenceTransformer model.
         """
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model_name = model_name
 
         args = EMBEDDER_ARGS.get(model_name, None)
         if args is not None:

@@ -13,6 +13,11 @@ from abc import ABC, abstractmethod
 class BaseEmbedder(ABC):
     """Interface for turning text into vectors."""
 
+    model_name: str
+    """Which model produced these vectors. Part of the contract because an index is only valid
+    for the model that built it, and the index needs a way to record what that was -- vectors
+    themselves carry no such record, so a swapped model degrades results with no error."""
+
     @abstractmethod
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """

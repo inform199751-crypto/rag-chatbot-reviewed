@@ -2,9 +2,11 @@ import argparse
 import sys
 from pathlib import Path
 
+from config import settings
 from database import init_db_engine
 from helpers.log import get_logger
 from memory.factory import create_embedder
+from memory.index_fingerprint import build_fingerprint, verify
 from memory.vector_database.chroma import Chroma
 from memory.vector_database.id_generator import generate_id
 from services.ingest_documents_service.document import Document
@@ -56,7 +58,27 @@ def build_memory_index(
     # bootstrap vector DB + registry
     # ------------------------------------------------------------------
     embedding = create_embedder(provider=embedding_provider, model_name=model_name)
-    vector_database = Chroma(is_persistent=True, persist_directory=str(vector_store_path), embedding=embedding)
+    # Record what this index is being built with. Nothing about a stored vector says which model
+    # produced it or how the text was split, so without this the backend has no way to notice
+    # that its configuration has drifted away from the index it is serving.
+    fingerprint = build_fingerprint(
+        embedding_model=embedding.model_name,
+        embedding_provider=embedding_provider or settings.EMBEDDING_PROVIDER,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+    vector_database = Chroma(
+        is_persistent=True,
+        persist_directory=str(vector_store_path),
+        embedding=embedding,
+        collection_metadata=fingerprint,
+    )
+    # Incremental runs append to an existing collection, whose metadata was fixed when it was
+    # created. Adding chunks split differently, or embedded by another model, is how an index
+    # ends up internally inconsistent -- so warn loudly rather than quietly mixing them.
+    # Not fatal: `--full-rebuild` is the documented way out, and refusing to run would stop the
+    # user reaching it.
+    verify(vector_database.collection.metadata, fingerprint, strict=False)
 
     session = Session(init_db_engine())
     registry = DocumentRegistry(session)
