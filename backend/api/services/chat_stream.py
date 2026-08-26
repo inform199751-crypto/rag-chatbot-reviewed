@@ -4,8 +4,14 @@ from chat_history import ChatHistory
 from config import settings
 from fastapi import WebSocket
 from helpers.log import get_logger
-from helpers.prettier import prettify_source
 from schemas.chat import ChatRequest
+from schemas.stream_events import (
+    answer_start_event,
+    done_event,
+    error_event,
+    sources_event,
+    token_event,
+)
 from services.chat_service.conversation_handler import (
     answer,
     answer_with_context,
@@ -20,49 +26,62 @@ from api.deps import LlamaCppClientDep, RerankerDep, VectorDatabaseDep
 logger = get_logger(__name__)
 
 
+async def _stream_tokens(websocket: WebSocket, llm_client, streamer) -> str:
+    """Forward generated tokens as TOKEN events and return the assembled text."""
+    full_response = ""
+    async for output in streamer:
+        token = llm_client.parse_token(output)
+        if token:
+            full_response += token
+            await websocket.send_text(token_event(token))
+    return full_response
+
+
+def _final_answer(llm_client, full_response: str, fallback: str) -> str:
+    if llm_client.model_settings.reasoning:
+        answer_text = extract_content_after_reasoning(full_response, llm_client.model_settings.reasoning_stop_tag)
+        return answer_text or fallback
+    return full_response
+
+
 # TODO: https://github.com/umbertogriffo/rag-chatbot/pull/10#discussion_r2936567672
 async def stream_chat_response(
     websocket: WebSocket, llm_client: LlamaCppClientDep, query: ChatRequest, chat_history: ChatHistory
 ):
     """
-    Helper function to stream chat responses token by token.
+    Stream a plain chat response as typed events.
+
      Args:
         websocket (WebSocket): The WebSocket connection to send responses through.
         llm_client (LamaCppClientDep): The LLM client dependency for generating responses.
         query (ChatRequest): The chat request containing the user's query.
         chat_history (ChatHistory): The chat history for this connection.
     """
+    start_time = time.time()
     try:
-        start_time = time.time()
+        # No retrieval on this path, so nothing is grounded in documents. Saying so explicitly
+        # keeps the client's rendering rule the same for both modes.
+        await websocket.send_text(answer_start_event(grounded=False))
 
-        full_response = ""
         stream = await answer(
             llm=llm_client,
             question=query.text,
             chat_history=chat_history,
             max_new_tokens=settings.MAX_NEW_TOKENS,
         )
-        async for output in stream:
-            token = llm_client.parse_token(output)
-            if token:
-                full_response += token
-                await websocket.send_text(token)
+        full_response = await _stream_tokens(websocket, llm_client, stream)
 
-        if llm_client.model_settings.reasoning:
-            final_answer = extract_content_after_reasoning(full_response, llm_client.model_settings.reasoning_stop_tag)
-            if final_answer == "":
-                final_answer = "I didn't provide the answer; perhaps I can try again."
-        else:
-            final_answer = full_response
-
+        final_answer = _final_answer(llm_client, full_response, "I didn't provide the answer; perhaps I can try again.")
         chat_history.append(f"question: {query.text}, answer: {final_answer}")
         logger.debug(f"Updated chat history: {chat_history}")
-
-        took = time.time() - start_time
-        logger.info(f"\n--- Took {took:.2f} seconds ---")
     except Exception as exc:
         logger.exception("Error during streaming: %s", exc)
-        await websocket.send_text("Error during streaming.")
+        await websocket.send_text(error_event("Error during streaming."))
+    finally:
+        # DONE on every path, including the failure above. The client unlocks its input on this
+        # event, so a path that skips it leaves the UI stuck with no way to recover.
+        await websocket.send_text(done_event(took_seconds=round(time.time() - start_time, 2)))
+        logger.info(f"\n--- Took {time.time() - start_time:.2f} seconds ---")
 
 
 # TODO: https://github.com/umbertogriffo/rag-chatbot/pull/10#discussion_r2936567672
@@ -75,7 +94,8 @@ async def stream_rag_response(
     reranker: RerankerDep = None,
 ):
     """
-    Helper function to stream RAG responses token by token.
+    Stream a retrieval-augmented response as typed events.
+
      Args:
         websocket (WebSocket): The WebSocket connection to send responses through.
         llm_client (LamaCppClientDep): The LLM client dependency for generating responses.
@@ -83,15 +103,12 @@ async def stream_rag_response(
         chat_history (ChatHistory): The chat history for this connection.
         index (VectorDatabaseDep): The vector database dependency for retrieval.
         reranker (RerankerDep): The cross-encoder for the second stage, or None to retrieve in
-            one stage. Defaults to None so existing callers -- including the tests -- keep
-            working without being rewritten.
+            one stage.
     """
+    start_time = time.time()
+    declined = False
     try:
-        start_time = time.time()
         ctx_synthesis_strategy = get_ctx_synthesis_strategy(settings.SYNTHESIS_STRATEGY, llm=llm_client)
-
-        retrieval_response = ""
-        full_response = ""
 
         refined_user_input = await refine_question(
             llm_client, query.text, chat_history=chat_history, max_new_tokens=settings.MAX_NEW_TOKENS
@@ -105,67 +122,45 @@ async def stream_rag_response(
             candidates=settings.RERANK_CANDIDATES,
             rerank_threshold=settings.RERANK_THRESHOLD,
         )
-        retrieved_contents = outcome.documents
+        grounded = bool(outcome.documents)
 
-        if retrieved_contents:
-            retrieval_response += "Here are the retrieved text chunks with a content preview: \n\n"
-
-            for source in outcome.sources:
-                retrieval_response += prettify_source(source)
-                retrieval_response += "\n\n"
-        else:
-            retrieval_response += explain_no_context(outcome)
-
-        await websocket.send_text(retrieval_response)
-        await websocket.send_text("-" * 20 + "\n\n")
-
-        if not retrieved_contents and not settings.ANSWER_WITHOUT_CONTEXT:
-            # Stop here rather than answering from the model's own knowledge. `answer_with_context`
-            # would silently fall back to plain chat, and the reply would be indistinguishable
-            # from a document-backed one.
-            await websocket.send_text(
-                "**No answer:** \n\nNothing in the indexed documents covers this, and this "
-                "deployment is configured not to answer without a source.\n"
+        await websocket.send_text(
+            sources_event(
+                documents=outcome.sources,
+                grounded=grounded,
+                reason=outcome.reason.value if outcome.reason else None,
+                message="" if grounded else explain_no_context(outcome).strip(),
             )
+        )
+
+        if not grounded and not settings.ANSWER_WITHOUT_CONTEXT:
+            # Stop rather than answering from the model's own knowledge. `answer_with_context`
+            # falls back to plain chat on an empty context, and that reply would be
+            # indistinguishable from a document-backed one.
+            declined = True
             chat_history.append(f"question: {query.text}, answer: (declined -- no supporting documents)")
             logger.info("Declined to answer without context (reason=%s)", outcome.reason)
             return
 
-        # Label the answer whenever it is not grounded. The header is the only place the user
-        # can tell the two cases apart -- the prose that follows reads identically either way.
-        await websocket.send_text(
-            "**Answer:** \n\n"
-            if retrieved_contents
-            else "**Answer (from the model's own knowledge, not your documents):** \n\n"
-        )
+        await websocket.send_text(answer_start_event(grounded=grounded))
 
         streamer, _ = await answer_with_context(
             llm_client,
             ctx_synthesis_strategy,
             query.text,
             chat_history,
-            retrieved_contents,
+            outcome.documents,
             settings.MAX_NEW_TOKENS,
         )
+        full_response = await _stream_tokens(websocket, llm_client, streamer)
 
-        async for output in streamer:
-            token = llm_client.parse_token(output)
-            if token:
-                full_response += token
-                await websocket.send_text(token)
-
-        if llm_client.model_settings.reasoning:
-            final_answer = extract_content_after_reasoning(full_response, llm_client.model_settings.reasoning_stop_tag)
-            if final_answer == "":
-                final_answer = "I wasn't able to provide the answer; Do you want me to try again?"
-        else:
-            final_answer = full_response
-
+        final_answer = _final_answer(
+            llm_client, full_response, "I wasn't able to provide the answer; Do you want me to try again?"
+        )
         chat_history.append(f"question: {query.text}, answer: {final_answer}")
-
-        took = time.time() - start_time
-        logger.info(f"\n--- Took {took:.2f} seconds ---")
-
     except Exception as exc:
         logger.exception("Error during RAG streaming: %s", exc)
-        await websocket.send_text("Error during RAG streaming.")
+        await websocket.send_text(error_event("Error during RAG streaming."))
+    finally:
+        await websocket.send_text(done_event(took_seconds=round(time.time() - start_time, 2), declined=declined))
+        logger.info(f"\n--- Took {time.time() - start_time:.2f} seconds ---")

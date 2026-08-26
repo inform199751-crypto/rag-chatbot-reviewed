@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send, Paperclip } from "lucide-react"
-import { ModeToggle, type ChatModes } from "./mode-toggle"
+import { ModeToggle, type ChatModes, type ModeAvailability } from "./mode-toggle"
 import { DocumentUpload } from "./document-upload"
 import type { DocumentInfo } from "@/services/api"
 import type { UploadProgress } from "@/hooks/useDocuments"
@@ -13,6 +13,7 @@ interface ChatInputProps {
   isLoading: boolean
   modes: ChatModes
   onModesChange: (modes: ChatModes) => void
+  availableModes?: ModeAvailability
   documents: DocumentInfo[]
   uploading: UploadProgress | null
   onDocumentsChange: (updater: (prev: DocumentInfo[]) => DocumentInfo[]) => void
@@ -27,6 +28,7 @@ export function ChatInput({
   isLoading,
   modes,
   onModesChange,
+  availableModes,
   documents,
   uploading,
   onDocumentsChange,
@@ -91,7 +93,7 @@ export function ChatInput({
           <div className="flex flex-col">
             {/* Mode Toggles Row */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
-              <ModeToggle modes={modes} onModesChange={onModesChange} />
+              <ModeToggle modes={modes} onModesChange={onModesChange} available={availableModes} />
               <Button
                 type="button"
                 variant="ghost"

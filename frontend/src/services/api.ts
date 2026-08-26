@@ -52,3 +52,16 @@ export async function deleteDocument(documentId: string): Promise<void> {
 export async function resetChatHistory(): Promise<void> {
   await axios.delete(`${API_BASE}/chat/history`);
 }
+
+export interface Capabilities {
+  rag: boolean;
+  reasoning: boolean;
+  web_search: boolean;
+  rerank: boolean;
+  answer_without_context: boolean;
+}
+
+export async function getCapabilities(): Promise<Capabilities> {
+  const response = await axios.get<Capabilities>(`${API_BASE}/capabilities`);
+  return response.data;
+}

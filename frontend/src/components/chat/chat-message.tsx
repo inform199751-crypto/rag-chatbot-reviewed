@@ -1,21 +1,75 @@
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Bot, User } from "lucide-react"
+import { AlertTriangle, Bot, FileText, Info, User } from "lucide-react"
 import ReactMarkdown from "react-markdown"
+import type { SourcesData } from "@/services/websocket"
 
 export interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   isStreaming?: boolean
+  /** Retrieved context for this answer, when the request used RAG. */
+  sources?: SourcesData
+  /** False when the answer came from the model alone rather than from the documents. */
+  grounded?: boolean
+  /** The server declined to answer because it had no supporting documents. */
+  declined?: boolean
+  isError?: boolean
 }
 
 interface ChatMessageProps {
   message: Message
 }
 
+/**
+ * The retrieved chunks, or an explanation of why there were none.
+ *
+ * Rendered apart from the answer on purpose. These used to arrive as one markdown blob glued to
+ * the front of the reply, which made it impossible to tell what the model was given from what
+ * the model said.
+ */
+function SourcesBlock({ sources }: { sources: SourcesData }) {
+  if (!sources.grounded) {
+    return (
+      <div className="mb-3 flex gap-2 rounded-lg border border-border/40 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>{sources.message || "No relevant documents were found."}</span>
+      </div>
+    )
+  }
+
+  return (
+    <details className="group mb-3 rounded-lg border border-border/40 bg-secondary/40">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        {sources.documents.length} source{sources.documents.length === 1 ? "" : "s"} used
+      </summary>
+      <div className="space-y-2 px-3 pb-3">
+        {sources.documents.map((doc, i) => (
+          <div key={i} className="rounded border border-border/30 bg-background/40 p-2 text-xs">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="truncate font-mono text-foreground/80">
+                {doc.document?.split(/[\\/]/).pop() ?? "unknown"}
+              </span>
+              <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-primary">
+                {doc.score.toFixed(3)}
+              </span>
+            </div>
+            <p className="leading-relaxed text-muted-foreground">{doc.content_preview}</p>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user"
+  // Only worth flagging once there is an answer to attribute. `grounded === undefined` means
+  // the request never went through retrieval, so there is nothing to say about it.
+  const showUngroundedBadge =
+    !isUser && message.grounded === false && !message.declined && Boolean(message.content)
 
   return (
     <div
@@ -47,12 +101,29 @@ export function ChatMessage({ message }: ChatMessageProps) {
           "max-w-[75%] rounded-2xl px-5 py-4",
           isUser
             ? "bg-message-user border border-border/50"
-            : "bg-message-ai border border-border/30"
+            : "bg-message-ai border border-border/30",
+          message.isError && "border-destructive/40 bg-destructive/10"
         )}
       >
-        {message.isStreaming && !message.content ? (
+        {message.sources && <SourcesBlock sources={message.sources} />}
+
+        {showUngroundedBadge && (
+          <div className="mb-3 flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Answered from the model&apos;s own knowledge, not from your documents.
+            </span>
+          </div>
+        )}
+
+        {message.isError ? (
+          <div className="flex gap-2 text-sm text-destructive-foreground/90">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{message.content}</span>
+          </div>
+        ) : message.isStreaming && !message.content ? (
           <TypingIndicator />
-        ) : (
+        ) : !message.content ? null : (
           <div className="prose prose-invert prose-sm max-w-none">
             <ReactMarkdown
               components={{

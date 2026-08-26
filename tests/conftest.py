@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from api.deps import get_db_session, get_index, get_llm_client
+from api.deps import get_db_session, get_index, get_llm_client, get_reranker
 from llm_providers.llamacpp_client import LlamaCppClient
 from main import app
 from memory.embedder import Embedder
@@ -121,9 +121,16 @@ def client_fixture(session: Session, llamacpp_client: LlamaCppClient, chroma_ins
     def get_index_client_override():
         return chroma_instance
 
+    def get_reranker_override():
+        # Single-stage retrieval in tests. Overridden explicitly rather than left to fall
+        # through to `state.reranker`, which is whatever the last app startup happened to leave
+        # there -- a test should not depend on that.
+        return None
+
     app.dependency_overrides[get_db_session] = get_db_session_override
     app.dependency_overrides[get_llm_client] = get_llm_client_override
     app.dependency_overrides[get_index] = get_index_client_override
+    app.dependency_overrides[get_reranker] = get_reranker_override
 
     client = TestClient(app)
 

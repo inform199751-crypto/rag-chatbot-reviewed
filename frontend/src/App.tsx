@@ -2,10 +2,21 @@ import { useState, useCallback, useMemo } from 'react';
 import { ChatHeader, ChatViewport, ChatInput, type Message, type ChatModes } from '@/components/chat';
 import { useChat } from '@/hooks/useChat';
 import { useDocuments } from '@/hooks/useDocuments';
+import { useCapabilities } from '@/hooks/useCapabilities';
 
 function App() {
   const { messages: rawMessages, isStreaming, sendMessage, clearMessages } = useChat();
   const { documents, uploading, setDocuments, setUploading, setError } = useDocuments();
+  const { capabilities } = useCapabilities();
+
+  const availableModes = useMemo(
+    () => ({
+      rag: capabilities.rag,
+      reasoning: capabilities.reasoning,
+      webSearch: capabilities.web_search,
+    }),
+    [capabilities],
+  );
 
   const [modes, setModes] = useState<ChatModes>({
     rag: false,
@@ -21,6 +32,10 @@ function App() {
         role: msg.sender === 'user' ? ('user' as const) : ('assistant' as const),
         content: msg.text,
         isStreaming: msg.isStreaming,
+        sources: msg.sources,
+        grounded: msg.grounded,
+        declined: msg.declined,
+        isError: msg.isError,
       })),
     [rawMessages],
   );
@@ -75,6 +90,7 @@ function App() {
             isLoading={isStreaming}
             modes={modes}
             onModesChange={setModes}
+            availableModes={availableModes}
             documents={documents}
             uploading={uploading}
             onDocumentsChange={setDocuments}
