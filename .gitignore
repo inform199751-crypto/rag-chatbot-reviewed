@@ -124,6 +124,11 @@ celerybeat.pid
 
 # Environments
 .env
+# Also catch the variants secrets actually end up in: .env.local, .env.prod, .env.bak.
+# The bare `.env` pattern matches only that exact name, which is how a file with live
+# keys in it stays untracked right up until someone renames it.
+.env.*
+!.env.example
 .venv
 env/
 venv/

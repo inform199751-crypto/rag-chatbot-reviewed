@@ -170,19 +170,25 @@ def build_memory_index(
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Memory Builder")
+    # Default to the configured values rather than a literal. The upload endpoint splits with
+    # settings.CHUNK_SIZE, so a hardcoded default here means a corpus built from the CLI and a
+    # document added through the UI end up chunked differently in the same index -- with nothing
+    # to compare them against, and no symptom beyond retrieval quietly getting worse.
     parser.add_argument(
         "--chunk-size",
         type=int,
-        help="The maximum size of each chunk. Defaults to 1000.",
+        help="The maximum size of each chunk. Defaults to CHUNK_SIZE from the environment (%(default)s), "
+        "which is what the upload endpoint uses.",
         required=False,
-        default=1000,
+        default=settings.CHUNK_SIZE,
     )
     parser.add_argument(
         "--chunk-overlap",
         type=int,
-        help="The amount of overlap between consecutive chunks. Defaults to 50.",
+        help="The amount of overlap between consecutive chunks. Defaults to CHUNK_OVERLAP from the "
+        "environment (%(default)s).",
         required=False,
-        default=50,
+        default=settings.CHUNK_OVERLAP,
     )
     parser.add_argument(
         "--full-rebuild",
