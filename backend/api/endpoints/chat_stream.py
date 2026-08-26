@@ -4,7 +4,7 @@ from fastapi import APIRouter, Response, WebSocket, WebSocketDisconnect
 from helpers.log import get_logger
 from schemas.chat import ChatRequest
 
-from api.deps import LlamaCppClientDep, VectorDatabaseDep
+from api.deps import LlamaCppClientDep, RerankerDep, VectorDatabaseDep
 from api.services.chat_stream import stream_chat_response, stream_rag_response
 
 logger = get_logger(__name__)
@@ -30,7 +30,12 @@ async def clear_chat_history():
 @router.websocket(
     path="/chat/stream",
 )
-async def chat_stream(websocket: WebSocket, llm_client: LlamaCppClientDep, index: VectorDatabaseDep):
+async def chat_stream(
+    websocket: WebSocket,
+    llm_client: LlamaCppClientDep,
+    index: VectorDatabaseDep,
+    reranker: RerankerDep,
+):
     """WebSocket endpoint for streaming chat responses token by token."""
     await websocket.accept()
     logger.info("WebSocket connection accepted")
@@ -43,7 +48,7 @@ async def chat_stream(websocket: WebSocket, llm_client: LlamaCppClientDep, index
             logger.info(f"Received data: {data}")
             query = ChatRequest(**data)
             if query.rag:
-                await stream_rag_response(websocket, llm_client, query, chat_history, index)
+                await stream_rag_response(websocket, llm_client, query, chat_history, index, reranker)
             else:
                 await stream_chat_response(websocket, llm_client, query, chat_history)
     except WebSocketDisconnect:
